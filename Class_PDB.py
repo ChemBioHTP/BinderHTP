@@ -853,6 +853,7 @@ class PDB():
         leapin_path = self.cache_path+'/leap_P2PwL.in'
         leap_input=open(leapin_path,'w')
         leap_input.write('source leaprc.protein.ff14SB\n')
+        leap_input.write('source leaprc.GLYCAM_06j-1\n')
         leap_input.write('a = loadpdb '+out_PDB_path1+'\n')
         leap_input.write('savepdb a '+out_PDB_path2+'\n')
         leap_input.write('quit\n')
@@ -1166,6 +1167,17 @@ class PDB():
 
         return self.path
 
+    def sep_sacc_by_ter(self): ###########
+        '''
+        Separate monosaccharide residues by TER lines in the PDB file to
+        be compatible with GLYCAM usage in tleap.
+        '''
+        self.get_stru()
+        outpath = f'{self.path_name}_sep.pdb'
+        self.stru.ligands.sort(key=lambda ch:ch.id)
+        self.stru.build(outpath, keep_id=1)
+        self.path = outpath
+        self._update_name()
 
     def rm_allH(self, ff='Amber', if_ligand=0):
         '''
@@ -1216,7 +1228,7 @@ class PDB():
     ========
     '''
 
-    def PDB2FF(self, prm_out_path='', o_dir='', lig_method='AM1BCC', renew_lig=0, local_lig=1, ifsavepdb=0, igb=None, if_prm_only=0):
+    def PDB2FF(self, prm_out_path='', o_dir='', lig_method='AM1BCC', renew_lig=0, local_lig=1, ifsavepdb=0, igb=None, if_prm_only=0, bond_atm_pair=None):
         '''
         PDB2FF(self, o_dir='')
         --------------------
@@ -1251,7 +1263,7 @@ class PDB():
         # combine
         if o_dir != '':
             mkdir(o_dir)
-        self._combine_parm(ligand_parm_paths, prm_out_path=prm_out_path, o_dir=o_dir, ifsavepdb=ifsavepdb, igb=igb, if_prm_only=if_prm_only)
+        self._combine_parm(ligand_parm_paths, prm_out_path=prm_out_path, o_dir=o_dir, ifsavepdb=ifsavepdb, igb=igb, if_prm_only=if_prm_only, bond_atm_pair=bond_atm_pair)
         if ifsavepdb:
             self.path = self.path_name+'_ff.pdb'
             self._update_name()
@@ -1276,7 +1288,10 @@ class PDB():
         lig_list = self.stru.get_all_ligands(ifunique=1)
         for lig in lig_list:
             if Config.debug >= 1:
-                print( 'Working on: '+'_'.join((lig.name, str(lig.id))) )            
+                print( 'Working on: '+'_'.join((lig.name, str(lig.id))) )           
+            if lig.name in ['0SA', '0fA', '3LB', '3VA', '4YB', 'WYB', 'QYB', 'SO3', 'ROH']: ##############
+                print(f'Contains {lig.name}. Skip ff generation.')
+                continue
             # target files
             out_prepi = lig_dir+'ligand_'+lig.name+'.prepin'
             out_frcmod = lig_dir+'ligand_'+lig.name+'.frcmod'
@@ -1311,7 +1326,7 @@ class PDB():
         return parm_paths
 
 
-    def _combine_parm(self, lig_parms, prm_out_path='', o_dir='', ifsavepdb=0, ifsolve=1, box_type=None, box_size=Config.Amber.box_size, igb=None, if_prm_only=0):
+    def _combine_parm(self, lig_parms, prm_out_path='', o_dir='', ifsavepdb=0, ifsolve=1, box_type=None, box_size=Config.Amber.box_size, igb=None, if_prm_only=0, bond_atm_pair=None):
         '''
         combine different parmeter files and make finally inpcrd and prmtop
         -------
@@ -1326,13 +1341,16 @@ class PDB():
         sol_path= self.path_name+'_ff.pdb'
         with open(leap_path, 'w') as of:
             of.write('source leaprc.protein.ff14SB'+line_feed)
-            of.write('source leaprc.gaff'+line_feed)
+            of.write('source leaprc.GLYCAM_06j-1'+line_feed)
+            of.write('source leaprc.gaff2'+line_feed)
             of.write('source leaprc.water.tip3p'+line_feed)
             # ligands
             for prepi, frcmod in lig_parms:
                 of.write('loadAmberParams '+frcmod+line_feed)
                 of.write('loadAmberPrep '+prepi+line_feed)
             of.write('a = loadpdb '+self.path+line_feed)
+            for atom1, atom2 in bond_atm_pair:  ##############
+                of.write(f'bond a.{atom1} a.{atom2}'+line_feed)
             # igb Radii
             if igb != None:
                 radii = radii_map[str(igb)]
